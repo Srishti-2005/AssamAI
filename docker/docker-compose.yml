@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  # 1. AsamAI Core API Service
+  asam-api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: asam-api
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://asam:asam_secret@postgres-pgvector:5432/asam_db
+      - REDIS_URL=redis://redis:6379/0
+      - VECTOR_TOP_K=50
+      - RERANK_THRESHOLD=0.75
+      - MAX_NOTIFIED_AGENTS=5
+    depends_on:
+      postgres-pgvector:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  # 2. PostgreSQL 16 + pgvector Service
+  postgres-pgvector:
+    image: pgvector/pgvector:pg16
+    container_name: asam-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: asam_db
+      POSTGRES_USER: asam
+      POSTGRES_PASSWORD: asam_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+      - ./init_pgvector.sql:/docker-entrypoint-initdb.d/init_pgvector.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U asam -d asam_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 3. Redis Streams Broker for Event-Driven Ingestion
+  redis:
+    image: redis:7-alpine
+    container_name: asam-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  pgvector_data:
+  redis_data:
